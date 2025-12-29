@@ -48,6 +48,14 @@ console.log('✅ Firebase Admin initialized securely');
 const app = express();
 const db = admin.database();
 
+// ============================================================================
+// VERCEL / PROXY CONFIGURATION (FIX FOR RATE LIMITING)
+// ============================================================================
+
+// ✅ Trust Vercel's proxy - CRITICAL for rate limiting and IP detection
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+
 
 // ============================================================================
 // SECURITY MIDDLEWARE
@@ -74,7 +82,7 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 
 // CORS - restrict to your domains
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').filter(o => o.trim()) || [];
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, curl)
@@ -93,7 +101,7 @@ app.use(cors({
 }));
 
 
-// Global rate limiter - prevents brute force
+// ✅ UPDATED: Global rate limiter with Vercel-compatible configuration
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // 100 requests per IP
@@ -103,20 +111,31 @@ const globalLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  // ✅ Skip failed requests (don't count towards limit)
+  skipFailedRequests: true,
+  // ✅ Simple key generator for Vercel
+  keyGenerator: (req) => {
+    return req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  }
 });
 
 
-// Strict rate limiter for notification endpoints
+// ✅ UPDATED: Notification rate limiter with Vercel-compatible configuration
 const notificationLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 10, // 10 notifications per minute
+  max: 20, // 20 notifications per minute (increased for testing)
   message: { 
     success: false, 
-    error: 'Notification rate limit exceeded. Maximum 10 per minute.' 
+    error: 'Notification rate limit exceeded. Maximum 20 per minute.' 
   },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipFailedRequests: true,
   keyGenerator: (req) => {
     // Rate limit by API key or IP
-    return req.headers['x-api-key'] || req.ip;
+    const apiKey = req.headers['x-api-key'];
+    if (apiKey) return `apikey_${apiKey.substring(0, 10)}`;
+    return req.ip || req.headers['x-forwarded-for'] || 'unknown';
   }
 });
 
@@ -133,7 +152,7 @@ app.use('/api/', globalLimiter);
 // Simple API Key Authentication
 const authenticate = (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
-  const validApiKeys = process.env.API_KEYS?.split(',') || [];
+  const validApiKeys = process.env.API_KEYS?.split(',').filter(k => k.trim()) || [];
   
   if (!apiKey) {
     return res.status(401).json({
@@ -215,7 +234,6 @@ app.get('/', async (req, res) => {
   // Test FCM availability - simplified check
   try {
     const messaging = admin.messaging();
-    // Just verify messaging service is initialized
     health.checks.fcm = messaging ? 'available' : 'unavailable';
   } catch (error) {
     console.log('🔍 FCM Health Check Error:', {
@@ -274,8 +292,9 @@ app.post('/api/save-token',
     try {
       const { userId, token, deviceInfo } = req.body;
 
-
-      // Verify token validity with FCM dry run
+      // ✅ Optional: Verify token validity with FCM dry run (can be disabled for faster saves)
+      // Uncomment if you want strict validation
+      /*
       try {
         await admin.messaging().send({
           token: token,
@@ -290,7 +309,7 @@ app.post('/api/save-token',
           });
         }
       }
-
+      */
 
       const tokenData = {
         token: token,
@@ -301,9 +320,7 @@ app.post('/api/save-token',
         isActive: true
       };
 
-
       await db.ref(`fcmTokens/${userId}`).set(tokenData);
-
 
       console.log(`✅ Token saved for user: ${userId}`);
       
@@ -349,15 +366,12 @@ app.post('/api/delete-token',
     try {
       const { userId } = req.body;
 
-
       await db.ref(`fcmTokens/${userId}`).update({ 
         isActive: false,
         deletedAt: admin.database.ServerValue.TIMESTAMP
       });
 
-
       console.log(`✅ Token invalidated for user: ${userId}`);
-
 
       res.status(200).json({
         success: true,
@@ -422,7 +436,6 @@ app.post('/api/send-notification',
     try {
       const { userId, token, title, body, data } = req.body;
 
-
       let fcmToken = token;
       
       // If userId provided, fetch token from database
@@ -440,14 +453,12 @@ app.post('/api/send-notification',
         fcmToken = tokenData.token;
       }
 
-
       if (!fcmToken) {
         return res.status(400).json({
           success: false,
           error: 'Either userId or token must be provided'
         });
       }
-
 
       const message = {
         notification: {
@@ -464,7 +475,6 @@ app.post('/api/send-notification',
         },
         token: fcmToken
       };
-
 
       const response = await admin.messaging().send(message);
       
@@ -483,6 +493,7 @@ app.post('/api/send-notification',
     } catch (error) {
       console.error('❌ Notification error:', {
         code: error.code,
+        message: error.message,
         userId: req.body.userId,
         timestamp: new Date().toISOString()
       });
@@ -500,6 +511,14 @@ app.post('/api/send-notification',
         return res.status(400).json({
           success: false,
           error: 'Invalid or expired FCM token'
+        });
+      }
+      
+      // ✅ Handle credential mismatch
+      if (error.code === 'messaging/mismatched-credential') {
+        return res.status(500).json({
+          success: false,
+          error: 'Firebase credential mismatch. Check server configuration.'
         });
       }
       
@@ -557,10 +576,8 @@ app.post('/api/notify-user',
     try {
       const { userId, title, body, data } = req.body;
 
-
       const snapshot = await db.ref(`fcmTokens/${userId}`).once('value');
       const tokenData = snapshot.val();
-
 
       if (!tokenData || !tokenData.isActive) {
         return res.status(404).json({
@@ -568,7 +585,6 @@ app.post('/api/notify-user',
           error: 'No active token found for this user'
         });
       }
-
 
       const message = {
         notification: {
@@ -585,15 +601,12 @@ app.post('/api/notify-user',
         token: tokenData.token
       };
 
-
       const response = await admin.messaging().send(message);
-
 
       console.log(`✅ Notification sent to user: ${userId}`, {
         messageId: response,
         title: title.substring(0, 30)
       });
-
 
       res.status(200).json({
         success: true,
@@ -603,12 +616,21 @@ app.post('/api/notify-user',
     } catch (error) {
       console.error('❌ Error notifying user:', {
         code: error.code,
+        message: error.message,
         userId: req.body.userId
       });
       
       if (error.code === 'messaging/invalid-registration-token' ||
           error.code === 'messaging/registration-token-not-registered') {
         await db.ref(`fcmTokens/${req.body.userId}`).update({ isActive: false });
+      }
+      
+      // ✅ Handle credential mismatch
+      if (error.code === 'messaging/mismatched-credential') {
+        return res.status(500).json({
+          success: false,
+          error: 'Firebase credential mismatch. Verify Firebase project configuration.'
+        });
       }
       
       res.status(500).json({
@@ -662,7 +684,6 @@ app.post('/api/send-multicast',
     try {
       const { tokens, title, body, data } = req.body;
 
-
       const message = {
         notification: {
           title: title,
@@ -677,7 +698,6 @@ app.post('/api/send-multicast',
         },
         tokens: tokens
       };
-
 
       const response = await admin.messaging().sendEachForMulticast(message);
       
@@ -744,7 +764,6 @@ app.post('/api/send-topic',
     try {
       const { topic, title, body, data } = req.body;
 
-
       const message = {
         notification: {
           title: title,
@@ -759,7 +778,6 @@ app.post('/api/send-topic',
         },
         topic: topic
       };
-
 
       const response = await admin.messaging().send(message);
       
@@ -814,7 +832,6 @@ app.post('/api/subscribe-topic',
     try {
       const { tokens, topic } = req.body;
 
-
       const tokenArray = Array.isArray(tokens) ? tokens : [tokens];
       const response = await admin.messaging().subscribeToTopic(tokenArray, topic);
       
@@ -865,7 +882,6 @@ app.post('/api/unsubscribe-topic',
     
     try {
       const { tokens, topic } = req.body;
-
 
       const tokenArray = Array.isArray(tokens) ? tokens : [tokens];
       const response = await admin.messaging().unsubscribeFromTopic(tokenArray, topic);
@@ -925,7 +941,6 @@ app.post('/api/send-data',
     try {
       const { token, data } = req.body;
 
-
       const message = {
         data: data,
         android: {
@@ -933,7 +948,6 @@ app.post('/api/send-data',
         },
         token: token
       };
-
 
       const response = await admin.messaging().send(message);
       
@@ -996,7 +1010,6 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 5000;
 
-
 app.listen(PORT, '0.0.0.0', () => {
   console.log('\n' + '='.repeat(60));
   console.log('🚀 Firebase Notification API - SECURE VERSION');
@@ -1007,6 +1020,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🔒 Security: Enabled (Helmet, Rate Limiting, Auth)`);
   console.log(`🔑 Authentication: ${process.env.API_KEYS ? 'Configured ✅' : 'NOT CONFIGURED ⚠️'}`);
   console.log(`🌍 CORS: ${allowedOrigins.length > 0 ? `Restricted to ${allowedOrigins.length} origin(s)` : 'Open (Dev Mode)'}`);
+  console.log(`🔧 Trust Proxy: Enabled (Vercel compatible)`);
   console.log('='.repeat(60) + '\n');
   
   // Warn if running without proper security
