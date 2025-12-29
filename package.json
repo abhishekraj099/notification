@@ -1,6 +1,6 @@
 {
   "name": "notifactionapi",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,15 +9,24 @@
   "engines": {
     "node": "20.x"
   },
-  "keywords": ["firebase", "fcm", "notifications"],
+  "keywords": [
+    "firebase",
+    "fcm",
+    "notifications",
+    "secure-api",
+    "push-notifications"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "Custom Firebase Cloud Messaging API for Android notifications",
+  "description": "Secure Firebase Cloud Messaging API for Android notifications with authentication and rate limiting",
   "dependencies": {
     "express": "^4.18.2",
     "firebase-admin": "^12.0.0",
     "dotenv": "^16.3.1",
-    "cors": "^2.8.5"
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "express-validator": "^7.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
