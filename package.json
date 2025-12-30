@@ -22,12 +22,16 @@
     "mobile-backend",
     "secure-api"
   ],
-  "author": "Your Name <your.email@example.com>",
+  "author": "Abhishek Raj <abhishekraj099@example.com>",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/notifactionapi.git"
+    "url": "https://github.com/abhishekraj099/notification.git"
   },
+  "bugs": {
+    "url": "https://github.com/abhishekraj099/notification/issues"
+  },
+  "homepage": "https://github.com/abhishekraj099/notification#readme",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
