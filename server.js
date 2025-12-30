@@ -11,6 +11,10 @@ const notificationRoutes = require('./routes/notification.routes');
 
 const app = express();
 
+// ✅ CRITICAL FIX: Trust proxy for Render deployment
+// This fixes rate limiting and IP detection behind Render's proxy
+app.set('trust proxy', 1);
+
 // ========================================
 // SECURITY CONFIGURATION
 // ========================================
