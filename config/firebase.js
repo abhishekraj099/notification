@@ -2,9 +2,10 @@ const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
   try {
-    // For Render deployment with full service account JSON
-    if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
-      const decoded = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString();
+    // Use SERVICE_ACCOUNT_BASE64 (the name in your Render environment)
+    if (process.env.SERVICE_ACCOUNT_BASE64 || process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+      const base64String = process.env.SERVICE_ACCOUNT_BASE64 || process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+      const decoded = Buffer.from(base64String, 'base64').toString();
       const serviceAccount = JSON.parse(decoded);
       
       admin.initializeApp({
@@ -14,7 +15,7 @@ if (!admin.apps.length) {
       
       console.log('✅ Firebase Admin initialized successfully (Base64)');
     } else {
-      // For local development - only try to load if file exists
+      // For local development
       try {
         const serviceAccount = require('../serviceAccountKey.json');
         
@@ -25,7 +26,7 @@ if (!admin.apps.length) {
         
         console.log('✅ Firebase Admin initialized successfully (Local JSON)');
       } catch (localError) {
-        throw new Error('❌ No Firebase credentials found. Please set FIREBASE_SERVICE_ACCOUNT_BASE64 environment variable or add serviceAccountKey.json file.');
+        throw new Error('❌ No Firebase credentials found. Please set SERVICE_ACCOUNT_BASE64 or FIREBASE_SERVICE_ACCOUNT_BASE64 environment variable.');
       }
     }
     
