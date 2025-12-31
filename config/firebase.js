@@ -14,20 +14,24 @@ if (!admin.apps.length) {
       
       console.log('✅ Firebase Admin initialized successfully (Base64)');
     } else {
-      // For local development
-      const serviceAccount = require('../serviceAccountKey.json');
-      
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: "https://notifaction-f0929-default-rtdb.firebaseio.com"
-      });
-      
-      console.log('✅ Firebase Admin initialized successfully (Local JSON)');
+      // For local development - only try to load if file exists
+      try {
+        const serviceAccount = require('../serviceAccountKey.json');
+        
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          databaseURL: "https://notifaction-f0929-default-rtdb.firebaseio.com"
+        });
+        
+        console.log('✅ Firebase Admin initialized successfully (Local JSON)');
+      } catch (localError) {
+        throw new Error('❌ No Firebase credentials found. Please set FIREBASE_SERVICE_ACCOUNT_BASE64 environment variable or add serviceAccountKey.json file.');
+      }
     }
     
     console.log('✅ Project:', admin.app().options.credential.projectId);
   } catch (error) {
-    console.error('❌ Firebase initialization error:', error);
+    console.error('❌ Firebase initialization error:', error.message);
     throw error;
   }
 }
